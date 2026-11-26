@@ -1,11 +1,14 @@
 
+from pathlib import Path
 from typing import Any
+
+import voluptuous as vol
 
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.helpers.storage import Store
 from homeassistant.components import websocket_api
-import probatio
+from homeassistant.components.http import StaticPathConfig
 
 DOMAIN = "ha_bookmark_cards"
 STORAGE_VERSION = 1
@@ -24,6 +27,16 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     websocket_api.async_register_command(hass, ws_get)
     websocket_api.async_register_command(hass, ws_save)
 
+    js_path = Path(__file__).parent / "www"
+
+    await hass.http.async_register_static_paths([
+        StaticPathConfig(
+            "/ha-bookmark-cards/ha-bookmark-cards.js",
+            str(js_path / "ha-bookmark-cards.js"),
+            False,
+        )
+    ])
+
     return True
 
 
@@ -34,8 +47,15 @@ async def async_setup_entry(
     return True
 
 
+async def async_unload_entry(
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+) -> bool:
+    return True
+
+
 @websocket_api.websocket_command({
-    probatio.Required("type"): "ha_bookmark_cards/get",
+    vol.Required("type"): "ha_bookmark_cards/get",
 })
 @websocket_api.async_response
 async def ws_get(
@@ -44,6 +64,7 @@ async def ws_get(
     msg: dict[str, Any],
 ) -> None:
     data = hass.data[DOMAIN]
+
     connection.send_result(
         msg["id"],
         {"groups": data["groups"]},
@@ -51,8 +72,8 @@ async def ws_get(
 
 
 @websocket_api.websocket_command({
-    probatio.Required("type"): "ha_bookmark_cards/save",
-    probatio.Required("groups"): list,
+    vol.Required("type"): "ha_bookmark_cards/save",
+    vol.Required("groups"): list,
 })
 @websocket_api.async_response
 async def ws_save(
@@ -61,6 +82,7 @@ async def ws_save(
     msg: dict[str, Any],
 ) -> None:
     data = hass.data[DOMAIN]
+
     data["groups"] = msg["groups"]
 
     await data["store"].async_save({
