@@ -30,26 +30,32 @@ class HABookmarkCards extends HTMLElement {
       this.render();
     } catch (error) {
       console.error("Bookmark Cards:", error);
+      this.groups = [];
+      this.render();
     }
   }
 
   async save() {
-    await this._hass.callWS({
-      type: "ha_bookmark_cards/save",
-      groups: this.groups
-    });
+    try {
+      await this._hass.callWS({
+        type: "ha_bookmark_cards/save",
+        groups: this.groups
+      });
 
-    this.render();
+      this.render();
+    } catch (error) {
+      console.error("Kunde inte spara bokmärken:", error);
+      alert("Det gick inte att spara bokmärkena.");
+    }
   }
 
   async addGroup() {
     const name = prompt("Namn på gruppen:");
-
-    if (!name) return;
+    if (!name?.trim()) return;
 
     this.groups.push({
       id: crypto.randomUUID(),
-      name,
+      name: name.trim(),
       bookmarks: []
     });
 
@@ -58,15 +64,15 @@ class HABookmarkCards extends HTMLElement {
 
   async addBookmark(group) {
     const title = prompt("Bokmärkets namn:");
-    if (!title) return;
+    if (!title?.trim()) return;
 
     const url = prompt("Webbadress:");
-    if (!url) return;
+    if (!url?.trim()) return;
 
     group.bookmarks.push({
       id: crypto.randomUUID(),
-      title,
-      url
+      title: title.trim(),
+      url: url.trim()
     });
 
     await this.save();
@@ -74,13 +80,13 @@ class HABookmarkCards extends HTMLElement {
 
   async editBookmark(group, bookmark) {
     const title = prompt("Ändra namn:", bookmark.title);
-    if (!title) return;
+    if (!title?.trim()) return;
 
     const url = prompt("Ändra webbadress:", bookmark.url);
-    if (!url) return;
+    if (!url?.trim()) return;
 
-    bookmark.title = title;
-    bookmark.url = url;
+    bookmark.title = title.trim();
+    bookmark.url = url.trim();
 
     await this.save();
   }
@@ -88,48 +94,68 @@ class HABookmarkCards extends HTMLElement {
   async deleteBookmark(group, bookmark) {
     if (!confirm("Ta bort bokmärket?")) return;
 
-    group.bookmarks =
-      group.bookmarks.filter(item => item.id !== bookmark.id);
+    group.bookmarks = group.bookmarks.filter(
+      item => item.id !== bookmark.id
+    );
 
     await this.save();
   }
 
   async renameGroup(group) {
     const name = prompt("Nytt gruppnamn:", group.name);
+    if (!name?.trim()) return;
 
-    if (!name) return;
-
-    group.name = name;
+    group.name = name.trim();
     await this.save();
   }
 
   async deleteGroup(group) {
-    if (!confirm("Ta bort hela gruppen?")) return;
+    if (!confirm("Ta bort hela gruppen och dess bokmärken?")) {
+      return;
+    }
 
-    this.groups = this.groups.filter(item => item.id !== group.id);
+    this.groups = this.groups.filter(
+      item => item.id !== group.id
+    );
 
     await this.save();
+  }
+
+  escape(value) {
+    return String(value ?? "").replace(/[&<>"']/g, char => ({
+      "&": "&amp;",
+      "<": "&lt;",
+      ">": "&gt;",
+      '"': "&quot;",
+      "'": "&#39;"
+    })[char]);
   }
 
   render() {
     if (!this._hass || !this.config || !this.groups) return;
 
+    const columns = Math.max(
+      1,
+      Math.min(4, Number(this.config.columns) || 2)
+    );
+
     this.innerHTML = `
-      <ha-card header="${this.config.title}">
+      <ha-card header="${this.escape(this.config.title)}">
+
         <div class="toolbar">
           <button id="add-group">＋ Ny grupp</button>
         </div>
 
         <div class="groups"
-          style="grid-template-columns:repeat(${this.config.columns},minmax(0,1fr))">
+          style="grid-template-columns:repeat(${columns},minmax(0,1fr))">
 
           ${this.groups.map(group => `
-            <div class="group">
+            <section class="group">
+
               <div class="group-header">
                 <strong>${this.escape(group.name)}</strong>
-
-                <button data-rename="${group.id}">✎</button>
-                <button data-delete-group="${group.id}">🗑</button>
+                <button data-rename="${this.escape(group.id)}">✎</button>
+                <button data-delete-group="${this.escape(group.id)}">🗑</button>
               </div>
 
               ${(group.bookmarks || []).map(bookmark => `
@@ -144,15 +170,18 @@ class HABookmarkCards extends HTMLElement {
                     ? `<small>${this.escape(bookmark.url)}</small>`
                     : ""}
 
-                  <button data-edit="${group.id}|${bookmark.id}">✎</button>
-                  <button data-delete="${group.id}|${bookmark.id}">×</button>
+                  <div class="actions">
+                    <button data-edit="${this.escape(group.id)}|${this.escape(bookmark.id)}">✎</button>
+                    <button data-delete="${this.escape(group.id)}|${this.escape(bookmark.id)}">×</button>
+                  </div>
                 </div>
               `).join("")}
 
-              <button data-add="${group.id}">
+              <button data-add="${this.escape(group.id)}">
                 ＋ Lägg till bokmärke
               </button>
-            </div>
+
+            </section>
           `).join("")}
 
         </div>
@@ -170,6 +199,7 @@ class HABookmarkCards extends HTMLElement {
         }
 
         .group {
+          min-width: 0;
           border: 1px solid var(--divider-color);
           border-radius: 10px;
           padding: 12px;
@@ -184,10 +214,12 @@ class HABookmarkCards extends HTMLElement {
 
         .group-header strong {
           flex: 1;
+          overflow-wrap: anywhere;
         }
 
         .bookmark {
-          padding: 9px 0;
+          position: relative;
+          padding: 10px 60px 10px 0;
           border-top: 1px solid var(--divider-color);
           overflow-wrap: anywhere;
         }
@@ -199,6 +231,12 @@ class HABookmarkCards extends HTMLElement {
         .bookmark small {
           display: block;
           color: var(--secondary-text-color);
+        }
+
+        .actions {
+          position: absolute;
+          right: 0;
+          top: 5px;
         }
 
         button {
@@ -218,56 +256,68 @@ class HABookmarkCards extends HTMLElement {
 
     this.querySelectorAll("[data-rename]").forEach(button => {
       button.onclick = () => {
-        const group = this.groups.find(g => g.id === button.dataset.rename);
+        const group = this.groups.find(
+          item => item.id === button.dataset.rename
+        );
         this.renameGroup(group);
       };
     });
 
     this.querySelectorAll("[data-delete-group]").forEach(button => {
       button.onclick = () => {
-        const group = this.groups.find(g => g.id === button.dataset.deleteGroup);
+        const group = this.groups.find(
+          item => item.id === button.dataset.deleteGroup
+        );
         this.deleteGroup(group);
       };
     });
 
     this.querySelectorAll("[data-add]").forEach(button => {
       button.onclick = () => {
-        const group = this.groups.find(g => g.id === button.dataset.add);
+        const group = this.groups.find(
+          item => item.id === button.dataset.add
+        );
         this.addBookmark(group);
       };
     });
 
     this.querySelectorAll("[data-edit]").forEach(button => {
       button.onclick = () => {
-        const [gid, bid] = button.dataset.edit.split("|");
-        const group = this.groups.find(g => g.id === gid);
-        const bookmark = group.bookmarks.find(b => b.id === bid);
+        const [groupId, bookmarkId] = button.dataset.edit.split("|");
+
+        const group = this.groups.find(
+          item => item.id === groupId
+        );
+
+        const bookmark = group.bookmarks.find(
+          item => item.id === bookmarkId
+        );
+
         this.editBookmark(group, bookmark);
       };
     });
 
     this.querySelectorAll("[data-delete]").forEach(button => {
       button.onclick = () => {
-        const [gid, bid] = button.dataset.delete.split("|");
-        const group = this.groups.find(g => g.id === gid);
-        const bookmark = group.bookmarks.find(b => b.id === bid);
+        const [groupId, bookmarkId] = button.dataset.delete.split("|");
+
+        const group = this.groups.find(
+          item => item.id === groupId
+        );
+
+        const bookmark = group.bookmarks.find(
+          item => item.id === bookmarkId
+        );
+
         this.deleteBookmark(group, bookmark);
       };
     });
   }
-
-  escape(value) {
-    return String(value ?? "").replace(/[&<>"']/g, char => ({
-      "&": "&amp;",
-      "<": "&lt;",
-      ">": "&gt;",
-      '"': "&quot;",
-      "'": "&#39;"
-    })[char]);
-  }
 }
 
-customElements.define("ha-bookmark-cards", HABookmarkCards);
+if (!customElements.get("ha-bookmark-cards")) {
+  customElements.define("ha-bookmark-cards", HABookmarkCards);
+}
 
 window.customCards = window.customCards || [];
 
